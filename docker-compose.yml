@@ -1,0 +1,140 @@
+version: '3.8'
+
+services:
+  # ===================================
+  # LLM Infrastructure
+  # ===================================
+
+  # LiteLLM - Unified API Router for all LLMs
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: ai-litellm
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./docker/litellm-config.yaml:/app/config.yaml
+    command: --config /app/config.yaml --detailed_debug
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    depends_on:
+      - ollama
+    networks:
+      - ai-network
+    restart: unless-stopped
+
+  # Ollama - Easy local model hosting (Llama, Mistral, etc.)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ai-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - ai-network
+    restart: unless-stopped
+    # Uncomment if you have NVIDIA GPU
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # Optional: vLLM for high-performance inference
+  # Uncomment to use vLLM
+  # vllm:
+  #   image: vllm/vllm-openai:latest
+  #   container_name: ai-vllm
+  #   ports:
+  #     - "8000:8000"
+  #   volumes:
+  #     - vllm-cache:/root/.cache/huggingface
+  #   environment:
+  #     - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
+  #   command: --model mistralai/Mistral-7B-Instruct-v0.2 --dtype auto
+  #   networks:
+  #     - ai-network
+  #   restart: unless-stopped
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+
+  # ===================================
+  # Your Application
+  # ===================================
+
+  # Flask Backend
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: ai-backend
+    ports:
+      - "5001:5001"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - LITELLM_BASE_URL=http://litellm:4000
+      - FLASK_ENV=development
+    volumes:
+      - ./server.py:/app/server.py
+      - ./docker/agents_config.py:/app/agents_config.py
+    depends_on:
+      - litellm
+    networks:
+      - ai-network
+    restart: unless-stopped
+
+  # React Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    container_name: ai-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://localhost:5001
+    volumes:
+      - ./src:/app/src
+      - ./index.html:/app/index.html
+      - ./vite.config.js:/app/vite.config.js
+    depends_on:
+      - backend
+    networks:
+      - ai-network
+    restart: unless-stopped
+
+  # Optional: Open WebUI for testing LLMs directly
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: ai-open-webui
+    ports:
+      - "8080:8080"
+    volumes:
+      - open-webui-data:/app/backend/data
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OPENAI_API_BASE_URL=http://litellm:4000/v1
+      - OPENAI_API_KEY=sk-1234  # Dummy key for LiteLLM
+    depends_on:
+      - ollama
+      - litellm
+    networks:
+      - ai-network
+    restart: unless-stopped
+
+networks:
+  ai-network:
+    driver: bridge
+
+volumes:
+  ollama-data:
+  # vllm-cache:  # Uncomment if using vLLM
+  open-webui-data:

@@ -1,0 +1,17 @@
+{
+  "venvPath": "/opt/anaconda3",
+  "venv": ".",
+  "pythonVersion": "3.12",
+  "pythonPlatform": "Darwin",
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "pythonVersion": "3.12",
+      "pythonPlatform": "Darwin",
+      "extraPaths": [
+        "/opt/anaconda3/lib/python3.12/site-packages"
+      ]
+    }
+  ]
+}
+

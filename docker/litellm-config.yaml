@@ -1,0 +1,126 @@
+# LiteLLM Configuration for Multiple Agents with Different LLMs
+# This router provides a unified OpenAI-compatible API for all your models
+
+model_list:
+  # ===================================
+  # Local Models via Ollama
+  # ===================================
+
+  # Fast, lightweight model for quick responses
+  - model_name: agent-fast
+    litellm_params:
+      model: ollama/llama3.2:3b
+      api_base: http://ollama:11434
+      temperature: 0.7
+    model_info:
+      description: "Fast 3B model for simple tasks - Agent 1"
+      use_case: "Quick responses, simple questions"
+
+  # Balanced model for general purpose
+  - model_name: agent-balanced
+    litellm_params:
+      model: ollama/llama3.1:8b
+      api_base: http://ollama:11434
+      temperature: 0.7
+    model_info:
+      description: "8B model for general purpose - Agent 2"
+      use_case: "Balanced speed and quality"
+
+  # Powerful local model for complex tasks
+  - model_name: agent-powerful
+    litellm_params:
+      model: ollama/llama3.1:70b
+      api_base: http://ollama:11434
+      temperature: 0.5
+    model_info:
+      description: "70B model for complex reasoning - Agent 3"
+      use_case: "Complex analysis, coding, reasoning"
+
+  # Specialized coding model
+  - model_name: agent-coder
+    litellm_params:
+      model: ollama/codellama:13b
+      api_base: http://ollama:11434
+      temperature: 0.3
+    model_info:
+      description: "Code-specialized 13B model - Agent 4"
+      use_case: "Code generation, debugging"
+
+  # ===================================
+  # Cloud Models (via Anthropic)
+  # ===================================
+
+  # Claude Haiku - Fast cloud model
+  - model_name: agent-cloud-fast
+    litellm_params:
+      model: claude-3-haiku-20240307
+      api_key: os.environ/ANTHROPIC_API_KEY
+      temperature: 0.7
+    model_info:
+      description: "Claude Haiku - fast cloud model - Agent 5"
+      use_case: "Fast cloud responses with good quality"
+
+  # Claude Sonnet - Balanced cloud model
+  - model_name: agent-cloud-balanced
+    litellm_params:
+      model: claude-3-5-sonnet-20241022
+      api_key: os.environ/ANTHROPIC_API_KEY
+      temperature: 0.7
+    model_info:
+      description: "Claude Sonnet - balanced cloud model - Agent 6"
+      use_case: "Best balance of speed and intelligence"
+
+  # Claude Opus - Most powerful
+  - model_name: agent-cloud-powerful
+    litellm_params:
+      model: claude-3-opus-20240229
+      api_key: os.environ/ANTHROPIC_API_KEY
+      temperature: 0.5
+    model_info:
+      description: "Claude Opus - most powerful - Agent 7"
+      use_case: "Most complex tasks requiring highest intelligence"
+
+  # ===================================
+  # Optional: vLLM Models (uncomment if using)
+  # ===================================
+
+  # - model_name: agent-vllm-mistral
+  #   litellm_params:
+  #     model: openai/mistralai/Mistral-7B-Instruct-v0.2
+  #     api_base: http://vllm:8000/v1
+  #     temperature: 0.7
+  #   model_info:
+  #     description: "Mistral 7B via vLLM - high performance"
+  #     use_case: "Fast inference for production"
+
+  # ===================================
+  # Optional: OpenAI Models (if you have API key)
+  # ===================================
+
+  # - model_name: agent-gpt4
+  #   litellm_params:
+  #     model: gpt-4-turbo-preview
+  #     api_key: os.environ/OPENAI_API_KEY
+  #     temperature: 0.7
+  #   model_info:
+  #     description: "GPT-4 Turbo"
+  #     use_case: "Alternative powerful model"
+
+# ===================================
+# Router Settings
+# ===================================
+
+# Enable detailed logging
+litellm_settings:
+  drop_params: true  # Drop unsupported params instead of erroring
+  set_verbose: true
+
+# Optional: Set default fallbacks
+# router_settings:
+#   routing_strategy: simple-shuffle  # Load balance across replicas
+#   num_retries: 2
+#   timeout: 300
+
+# Optional: Cost tracking
+# litellm_settings:
+#   success_callback: ["langfuse"]  # Track usage

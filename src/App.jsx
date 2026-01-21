@@ -1,117 +1,127 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
+
 import Sidebar from './components/Sidebar'
 import ChatContainer from './components/ChatContainer'
+import NodeMap from './components/NodeMap'
 import './App.css'
 
 function App() {
+  const navigate = useNavigate()
+  const location = useLocation()
+
   const [conversations, setConversations] = useState([])
   const [activeConversationId, setActiveConversationId] = useState(null)
   const [isTyping, setIsTyping] = useState(false)
-  // Topic edges: array of { conversationId, fromConversationId, fromMessageId, selectionRange }
+
+  // Topic edges: { conversationId, fromConversationId, fromMessageId, selectionRange }
   const [topicEdges, setTopicEdges] = useState([])
-  // Topic summaries: map of conversationId -> stable summary
+  // Topic summaries: { [conversationId]: summary }
   const [topicSummaries, setTopicSummaries] = useState({})
 
-  // Ensure there is always at least one conversation
+  // 1) Ensure at least one conversation exists
   useEffect(() => {
     if (conversations.length === 0) {
-      const newConversation = {
-        id: Date.now(),
-        title: 'New Chat',
-        messages: []
-      }
+      const id = Date.now()
+      const newConversation = { id, title: 'New Chat', messages: [] }
       setConversations([newConversation])
-      setActiveConversationId(newConversation.id)
+      setActiveConversationId(id)
     }
   }, [conversations.length])
 
-  // Create a new topic conversation from a highlighted text selection
-  const handleCreateTopicFromSelection = (fromConversationId, fromMessageId, highlightText, selectionRange) => {
+  // Helpers
+  const getActiveConversation = () =>
+    conversations.find((c) => c.id === activeConversationId) || null
+
+  const activeMessages = getActiveConversation()?.messages || []
+
+  const handleNewChat = () => {
+    const id = Date.now()
+    const newConversation = { id, title: 'New Chat', messages: [] }
+
+    setConversations((prev) => [newConversation, ...prev])
+    setActiveConversationId(id)
+
+    // Always bring the user to chat view after creating a new chat
+    if (location.pathname !== '/') navigate('/')
+  }
+
+  // 2) Create a new topic thread from highlighted selection
+  const handleCreateTopicFromSelection = (
+    fromConversationId,
+    fromMessageId,
+    highlightText,
+    selectionRange
+  ) => {
+    const id = Date.now()
+
     const newTopicConversation = {
-      id: Date.now(),
+      id,
       title: highlightText.slice(0, 30) + (highlightText.length > 30 ? '…' : ''),
       messages: [],
-      fromConversationId: fromConversationId,
-      topicMeta: {
-        fromMessageId: fromMessageId,
-        selectionRange: selectionRange
-      }
+      fromConversationId,
+      topicMeta: { fromMessageId, selectionRange },
     }
 
-    // Add the topic edge (only IDs)
     const newEdge = {
-      conversationId: newTopicConversation.id,
-      fromConversationId: fromConversationId,
-      fromMessageId: fromMessageId,
-      selectionRange: selectionRange
+      conversationId: id,
+      fromConversationId,
+      fromMessageId,
+      selectionRange,
     }
 
     setConversations((prev) => [newTopicConversation, ...prev])
     setTopicEdges((prev) => [...prev, newEdge])
-    setActiveConversationId(newTopicConversation.id)
+    setActiveConversationId(id)
+
+    // after creating a topic thread, show chat view of that topic
+    navigate('/')
   }
 
-  // Get all topic conversations linked to a specific message
-  const getTopicsForMessage = (conversationId, messageId) => {
-    return topicEdges.filter(
+  // 3) Topic edges for a given message (used to render badges)
+  const getTopicsForMessage = (conversationId, messageId) =>
+    topicEdges.filter(
       (edge) => edge.fromConversationId === conversationId && edge.fromMessageId === messageId
     )
-  }
 
-  // Build contextPack for a conversation (for topic threads)
+  // 4) ContextPack builder (topic thread = parent excerpt + parent messages + recent turns)
   const buildContextPack = (conversationId) => {
-    const conversation = conversations.find(c => c.id === conversationId)
+    const conversation = conversations.find((c) => c.id === conversationId)
     if (!conversation) return null
 
-    // Check if this is a topic thread
-    const edge = topicEdges.find(e => e.conversationId === conversationId)
-    if (!edge) return null // Not a topic thread
+    const edge = topicEdges.find((e) => e.conversationId === conversationId)
+    if (!edge) return null
 
-    // Get the parent conversation and message
-    const parentConversation = conversations.find(c => c.id === edge.fromConversationId)
+    const parentConversation = conversations.find((c) => c.id === edge.fromConversationId)
     if (!parentConversation) return null
 
-    const fromMessage = parentConversation.messages.find(m => m.id === edge.fromMessageId)
+    const fromMessage = parentConversation.messages.find((m) => m.id === edge.fromMessageId)
     if (!fromMessage) return null
 
-    // Extract the selected text from the parent message using selectionRange
     let selectedText = ''
     if (edge.selectionRange && fromMessage.text) {
-      try {
-        const start = Math.max(0, Math.min(edge.selectionRange.start, fromMessage.text.length))
-        const end = Math.max(start, Math.min(edge.selectionRange.end, fromMessage.text.length))
-        selectedText = fromMessage.text.substring(start, end)
-      } catch (e) {
-        console.warn('Error extracting selected text from parent message:', e)
-        selectedText = ''
-      }
+      const start = Math.max(0, Math.min(edge.selectionRange.start, fromMessage.text.length))
+      const end = Math.max(start, Math.min(edge.selectionRange.end, fromMessage.text.length))
+      selectedText = fromMessage.text.substring(start, end)
     }
-    
-    if (!selectedText) return null // Can't build context without selected text
 
-    // Get parent conversation messages (for context)
-    const parentMessages = parentConversation.messages
+    if (!selectedText) return null
 
-    // Get last 2-4 turns of the topic thread (working memory)
-    // Each "turn" is a user message + AI response pair
+    // last 2–4 turns of the topic thread
     const topicMessages = conversation.messages
     const recentTurns = []
     let turnCount = 0
     const maxTurns = 4
-    
-    // Go backwards through messages to collect turns
+
     for (let i = topicMessages.length - 1; i >= 0 && turnCount < maxTurns; i--) {
       const msg = topicMessages[i]
-      if (msg.sender === 'ai') {
-        // Find the preceding user message
-        if (i > 0 && topicMessages[i - 1].sender === 'user') {
-          recentTurns.unshift({
-            user: topicMessages[i - 1].text,
-            assistant: msg.text
-          })
-          turnCount++
-          i-- // Skip the user message we just processed
-        }
+      if (msg.sender === 'ai' && i > 0 && topicMessages[i - 1].sender === 'user') {
+        recentTurns.unshift({
+          user: topicMessages[i - 1].text,
+          assistant: msg.text,
+        })
+        turnCount++
+        i--
       }
     }
 
@@ -119,40 +129,25 @@ function App() {
       isTopicThread: true,
       fromConversationId: edge.fromConversationId,
       fromMessageId: edge.fromMessageId,
-      selectedText: selectedText,
+      selectedText,
       selectionRange: edge.selectionRange,
-      parentMessages: parentMessages,
+      parentMessages: parentConversation.messages,
       topicSummary: topicSummaries[conversationId] || null,
-      recentTurns: recentTurns // Last 2-4 turns as working memory
+      recentTurns,
     }
   }
 
-  const getActiveConversation = () =>
-    conversations.find((c) => c.id === activeConversationId) || null
-
-  const activeMessages = getActiveConversation()?.messages || []
-
-  const handleNewChat = () => {
-    const newConversation = {
-      id: Date.now(),
-      title: 'New Chat',
-      messages: []
-    }
-    setConversations((prev) => [newConversation, ...prev])
-    setActiveConversationId(newConversation.id)
-  }
-
+  // 5) Send message (chat endpoint)
   const handleSendMessage = async (messageText) => {
     if (!messageText.trim()) return
 
-    // Add user message
     const userMessage = {
       id: Date.now(),
       text: messageText,
-      sender: 'user'
+      sender: 'user',
     }
 
-    // Add user message to active conversation
+    // append user message
     setConversations((prev) =>
       prev.map((conv) => {
         if (conv.id !== activeConversationId) return conv
@@ -160,87 +155,72 @@ function App() {
         return {
           ...conv,
           messages: updatedMessages,
-          // Use first user message as the conversation title
           title:
             conv.messages.length === 0
               ? messageText.slice(0, 30) + (messageText.length > 30 ? '…' : '')
-              : conv.title
+              : conv.title,
         }
       })
     )
 
     setIsTyping(true)
 
-    // Build contextPack if this is a topic thread
     const contextPack = buildContextPack(activeConversationId)
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          message: messageText,
-          contextPack: contextPack
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: messageText, contextPack }),
       })
 
       const data = await response.json()
       setIsTyping(false)
 
-      if (data.error) {
-        const errorMessage = {
-          id: Date.now() + 1,
-          text: `Error: ${data.error}`,
-          sender: 'ai'
-        }
-        setConversations((prev) =>
-          prev.map((conv) =>
-            conv.id === activeConversationId
-              ? { ...conv, messages: [...conv.messages, errorMessage] }
-              : conv
-          )
-        )
-      } else {
-        const aiMessage = {
-          id: Date.now() + 1,
-          text: data.response,
-          sender: 'ai'
-        }
-        setConversations((prev) =>
-          prev.map((conv) =>
-            conv.id === activeConversationId
-              ? { ...conv, messages: [...conv.messages, aiMessage] }
-              : conv
-          )
-        )
+      const aiMessage = data?.error
+        ? { id: Date.now() + 1, text: `Error: ${data.error}`, sender: 'ai' }
+        : { id: Date.now() + 1, text: data.response, sender: 'ai' }
 
-        // Update topic summary if provided by backend
-        if (data.topicSummary && contextPack?.isTopicThread) {
-          setTopicSummaries((prev) => ({
-            ...prev,
-            [activeConversationId]: data.topicSummary
-          }))
-        }
-      }
-    } catch (error) {
-      setIsTyping(false)
-      const errorMessage = {
-        id: Date.now() + 1,
-        text: 'Sorry, I couldn\'t connect to the server. Make sure the backend is running on http://localhost:5001',
-        sender: 'ai'
-      }
       setConversations((prev) =>
         prev.map((conv) =>
           conv.id === activeConversationId
-            ? { ...conv, messages: [...conv.messages, errorMessage] }
+            ? { ...conv, messages: [...conv.messages, aiMessage] }
             : conv
+        )
+      )
+
+      if (data?.topicSummary && contextPack?.isTopicThread) {
+        setTopicSummaries((prev) => ({
+          ...prev,
+          [activeConversationId]: data.topicSummary,
+        }))
+      }
+    } catch (error) {
+      setIsTyping(false)
+      const errMsg = {
+        id: Date.now() + 1,
+        text:
+          "Sorry, I couldn't connect to the server. Make sure the backend is running on http://localhost:5001",
+        sender: 'ai',
+      }
+      setConversations((prev) =>
+        prev.map((conv) =>
+          conv.id === activeConversationId ? { ...conv, messages: [...conv.messages, errMsg] } : conv
         )
       )
       console.error('Error:', error)
     }
   }
+
+  // 6) Selecting a conversation should also route appropriately
+  const handleSelectConversation = (id) => {
+    setActiveConversationId(id)
+    // Always show chat when selecting a conversation from the sidebar
+    if (location.pathname !== '/') navigate('/')
+  }
+
+  // Sidebar active route helper (optional if your Sidebar uses it)
+  const activeRoute = useMemo(() => location.pathname, [location.pathname])
 
   return (
     <div className="app-container">
@@ -248,20 +228,64 @@ function App() {
         onNewChat={handleNewChat}
         conversations={conversations}
         activeConversationId={activeConversationId}
-        onSelectConversation={setActiveConversationId}
+        onSelectConversation={handleSelectConversation}
+        // Optional props if you added a Map tab/button in Sidebar:
+        onGoToMap={() => navigate('/map')}
+        activeRoute={activeRoute}
       />
-      <ChatContainer 
-        messages={activeMessages}
-        activeConversationId={activeConversationId}
-        isTyping={isTyping}
-        onSendMessage={handleSendMessage}
-        onCreateTopicFromSelection={handleCreateTopicFromSelection}
-        getTopicsForMessage={getTopicsForMessage}
-        onSelectConversation={setActiveConversationId}
-      />
+
+      <Routes>
+        {/* Chat page */}
+        <Route
+          path="/"
+          element={
+            <ChatContainer
+              messages={activeMessages}
+              activeConversationId={activeConversationId}
+              isTyping={isTyping}
+              onSendMessage={handleSendMessage}
+              onCreateTopicFromSelection={handleCreateTopicFromSelection}
+              getTopicsForMessage={getTopicsForMessage}
+              onSelectConversation={handleSelectConversation}
+            />
+          }
+        />
+
+        {/* NodeMap page */}
+        <Route
+          path="/map"
+          element={
+            <div className="chat-container">
+              <div className="chat-header">
+                <h1>Map</h1>
+                <div className="model-selector">
+                  <button className="new-chat-btn" onClick={handleNewChat} style={{ width: 'auto' }}>
+                    + New
+                  </button>
+                </div>
+              </div>
+
+              <div className="messages-container" style={{ paddingBottom: 16 }}>
+                <NodeMap
+                  conversations={conversations}
+                  topicEdges={topicEdges}
+                  activeConversationId={activeConversationId}
+                  onSelectConversation={(id) => {
+                    setActiveConversationId(id)
+                    // Click node -> go to chat for that node
+                    navigate('/')
+                  }}
+                />
+              </div>
+            </div>
+          }
+        />
+
+        {/* Fallback */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     </div>
   )
 }
 
 export default App
-
